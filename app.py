@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands
 import os
+import datetime
 from flask import Flask
 from threading import Thread
 
@@ -26,6 +27,7 @@ keep_alive()
 TOKEN = os.getenv("DISCORD_TOKEN")
 VERIFY_CHANNEL_ID = 1503430453342765127
 CITIZEN_ROLE_ID = 1503383182467272714
+LOG_CHANNEL_ID = 1503433900536369323
 
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -48,11 +50,52 @@ class VerifyView(discord.ui.View):
             await member.add_roles(role)
             await interaction.response.send_message("✅ Добро пожаловать в DLHSEC, гражданин!", ephemeral=True)
 
+            # Лог верификации
+            log_channel = bot.get_channel(LOG_CHANNEL_ID)
+            if log_channel:
+                embed = discord.Embed(
+                    title="🦅 НОВЫЙ ГРАЖДАНИН",
+                    description=f"{member.mention} прошёл верификацию и стал гражданином DLHSEC.",
+                    color=discord.Color.green(),
+                    timestamp=datetime.datetime.now(datetime.timezone.utc)
+                )
+                embed.set_thumbnail(url=member.display_avatar.url)
+                await log_channel.send(embed=embed)
+
 # --- СОБЫТИЯ ---
 @bot.event
 async def on_ready():
     bot.add_view(VerifyView())
     print(f"🦅 {bot.user} взлетел! Iron Eagle патрулирует DLHSEC.")
+
+@bot.event
+async def on_member_join(member):
+    # Лог входа
+    log_channel = bot.get_channel(LOG_CHANNEL_ID)
+    if log_channel:
+        embed = discord.Embed(
+            title="📥 ВХОД В ИМПЕРИЮ",
+            description=f"{member.mention} пересёк границу DLHSEC.",
+            color=discord.Color.blue(),
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
+        )
+        embed.add_field(name="Аккаунт создан", value=member.created_at.strftime("%d.%m.%Y"), inline=True)
+        embed.set_thumbnail(url=member.display_avatar.url)
+        await log_channel.send(embed=embed)
+
+@bot.event
+async def on_member_remove(member):
+    # Лог выхода
+    log_channel = bot.get_channel(LOG_CHANNEL_ID)
+    if log_channel:
+        embed = discord.Embed(
+            title="📤 ВЫХОД ИЗ ИМПЕРИИ",
+            description=f"{member.mention} покинул DLHSEC.",
+            color=discord.Color.red(),
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
+        )
+        embed.set_thumbnail(url=member.display_avatar.url)
+        await log_channel.send(embed=embed)
 
 # --- КОМАНДЫ ---
 @bot.command()
