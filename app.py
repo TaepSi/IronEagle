@@ -33,7 +33,7 @@ async def on_ready():
 
 @bot.command()
 async def ping(ctx):
-    await ctx.send("🦅 Клёкот!")
+    await ctx.send("🦅 КЛИК КЛИК БУМ!")
 
 if __name__ == "__main__":
     bot.run(TOKEN)
