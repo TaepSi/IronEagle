@@ -36,7 +36,8 @@ CONFESSION_CHANNEL_ID = 1503439326909038853
 MUTE_LOGS_ID = 1503446367979311125
 WARN_LOGS_ID = 1503446730757374122
 BAN_LOGS_ID = 1503446786826702921
-PUBLIC_LOG_ID = 1503433900536369323 # Лучше создать отдельный канал #публичные-логи, а пока укажем сюда же
+PUBLIC_LOG_ID = 1503433900536369323
+GENERAL_CHAT_ID = 1503432785363206155
 
 CONFESSION_ROLES = {
     "Протестант": 1503440143942549725,
@@ -202,7 +203,7 @@ async def on_message(message):
             return
         except Exception as e: print(f"Ошибка анти-масс-пинга: {e}")
 
-    # Умная модерация мата + варны
+        # Умная модерация мата + варны
     if not is_admin and predict([message.content])[0] == 1:
         try: await message.delete()
         except: pass
@@ -227,7 +228,8 @@ async def on_message(message):
                 action_text = "ЗАБАНЕН за рецидив."
             except: action_text = "должен быть забанен."
 
-        public_chat = bot.get_channel(PUBLIC_LOG_ID)
+        # Публичное оповещение в общий чат
+        public_chat = bot.get_channel(GENERAL_CHAT_ID)
         if public_chat: await public_chat.send(f"⚠️ {message.author.mention}, ты {action_text}")
 
         if count >= 6:
