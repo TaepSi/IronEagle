@@ -59,7 +59,6 @@ class VerifyView(discord.ui.View):
             await member.add_roles(role)
             await interaction.response.send_message("✅ Добро пожаловать в DLHSEC, гражданин!", ephemeral=True)
 
-            # Лог
             log_channel = bot.get_channel(LOG_CHANNEL_ID)
             if log_channel:
                 embed = discord.Embed(
@@ -94,7 +93,6 @@ class ConfessionSelect(discord.ui.Select):
 
         member = interaction.user
 
-        # Убираем другие конфессии
         for other_name, other_id in CONFESSION_ROLES.items():
             if other_name != chosen:
                 other_role = interaction.guild.get_role(other_id)
@@ -107,7 +105,6 @@ class ConfessionSelect(discord.ui.Select):
             await member.add_roles(role)
             await interaction.response.send_message(f"✅ Ты выбрал конфессию: **{chosen}**. Добро пожаловать в свою ветвь!", ephemeral=True)
 
-            # Лог
             log_channel = bot.get_channel(LOG_CHANNEL_ID)
             if log_channel:
                 embed = discord.Embed(
@@ -156,6 +153,40 @@ async def on_member_remove(member):
             timestamp=datetime.datetime.now(datetime.timezone.utc)
         )
         embed.set_thumbnail(url=member.display_avatar.url)
+        await log_channel.send(embed=embed)
+
+# --- ЛОГИ СООБЩЕНИЙ (КАК У VASYAGUARD) ---
+@bot.event
+async def on_message_delete(message):
+    if message.author.bot:
+        return
+    log_channel = bot.get_channel(LOG_CHANNEL_ID)
+    if log_channel:
+        embed = discord.Embed(
+            title="🗑 СООБЩЕНИЕ УДАЛЕНО",
+            color=discord.Color.red(),
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
+        )
+        embed.add_field(name="Автор", value=f"{message.author.mention}", inline=True)
+        embed.add_field(name="Канал", value=f"{message.channel.mention}", inline=True)
+        embed.add_field(name="Текст", value=message.content or "Файл/вложение", inline=False)
+        await log_channel.send(embed=embed)
+
+@bot.event
+async def on_message_edit(before, after):
+    if before.author.bot or before.content == after.content:
+        return
+    log_channel = bot.get_channel(LOG_CHANNEL_ID)
+    if log_channel:
+        embed = discord.Embed(
+            title="📝 СООБЩЕНИЕ ИЗМЕНЕНО",
+            color=discord.Color.orange(),
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
+        )
+        embed.add_field(name="Автор", value=before.author.mention, inline=True)
+        embed.add_field(name="Канал", value=before.channel.mention, inline=True)
+        embed.add_field(name="Было", value=before.content, inline=False)
+        embed.add_field(name="Стало", value=after.content, inline=False)
         await log_channel.send(embed=embed)
 
 # --- КОМАНДЫ ---
