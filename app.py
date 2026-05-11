@@ -337,6 +337,79 @@ async def slash_warn(interaction: discord.Interaction, member: discord.Member, r
         ephemeral=True
     )
 
+@bot.tree.command(name="unwarn", description="Снять последний варн с пользователя")
+@commands.has_permissions(administrator=True)
+async def slash_unwarn(interaction: discord.Interaction, member: discord.Member):
+    async with bot.db_pool.acquire() as conn:
+        # Находим ID последнего варна
+        last_warn_id = await conn.fetchval(
+            "SELECT warn_id FROM warns WHERE user_id = $1 ORDER BY timestamp DESC LIMIT 1",
+            member.id
+        )
+        
+        if last_warn_id is None:
+            return await interaction.response.send_message(
+                f"❌ У {member.mention} нет варнов.",
+                ephemeral=True
+            )
+        
+        # Удаляем последний варн
+        await conn.execute("DELETE FROM warns WHERE warn_id = $1", last_warn_id)
+        
+        # Считаем оставшиеся
+        remaining = await conn.fetchval("SELECT COUNT(*) FROM warns WHERE user_id = $1", member.id)
+
+    # Лог
+    warn_log = bot.get_channel(WARN_LOGS_ID)
+    if warn_log:
+        embed = discord.Embed(
+            title="➖ ВАРН СНЯТ",
+            color=discord.Color.blue(),
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
+        )
+        embed.add_field(name="С кого", value=member.mention, inline=True)
+        embed.add_field(name="Модератор", value=interaction.user.mention, inline=True)
+        embed.add_field(name="Осталось варнов", value=str(remaining), inline=False)
+        await warn_log.send(embed=embed)
+
+    # Публичное оповещение
+    public_chat = bot.get_channel(GENERAL_CHAT_ID)
+    if public_chat:
+        await public_chat.send(f"😇 С {member.mention} снят варн. Осталось: {remaining}/6")
+
+    await interaction.response.send_message(
+        f"✅ Последний варн снят с {member.mention}. Осталось: {remaining}/6",
+        ephemeral=True
+    )
+
+@bot.tree.command(name="clearwarns", description="Полностью очистить историю варнов пользователя")
+@commands.has_permissions(administrator=True)
+async def slash_clearwarns(interaction: discord.Interaction, member: discord.Member):
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM warns WHERE user_id = $1", member.id)
+
+    # Лог
+    warn_log = bot.get_channel(WARN_LOGS_ID)
+    if warn_log:
+        embed = discord.Embed(
+            title="♻️ ИСТОРИЯ ОЧИЩЕНА",
+            color=discord.Color.green(),
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
+        )
+        embed.add_field(name="Пользователь", value=member.mention, inline=True)
+        embed.add_field(name="Модератор", value=interaction.user.mention, inline=True)
+        await warn_log.send(embed=embed)
+
+    # Публичное оповещение
+    public_chat = bot.get_channel(GENERAL_CHAT_ID)
+    if public_chat:
+        await public_chat.send(f"✨ Все варны {member.mention} аннулированы. Чистый лист! Благодари Бога за снисхождение императора.")
+
+    await interaction.response.send_message(
+        f"✅ Все варны {member.mention} удалены.",
+        ephemeral=True
+    )
+
 # --- ЗАПУСК ---
 bot.db_pool = None
 
