@@ -4,10 +4,12 @@ import os
 from flask import Flask
 from threading import Thread
 
-# --- БЛОК ОЖИВЛЯЛКИ ---
+# --- БЛОК ОЖИВЛЯЛКИ (ЗАПУСКАЕМ ПЕРЕД БОТОМ) ---
 app = Flask('')
+
 @app.route('/')
-def home(): return "Iron Eagle is online!"
+def home():
+    return "Iron Eagle is online!"
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
@@ -18,9 +20,10 @@ def keep_alive():
     t.daemon = True
     t.start()
 
+keep_alive()  # <--- ВОТ ЭТО ВАЖНО: запускаем ДО ТОКЕНА
+
 # --- НАСТРОЙКИ ---
 TOKEN = os.getenv("DISCORD_TOKEN")
-
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -33,5 +36,4 @@ async def ping(ctx):
     await ctx.send("🦅 Клёкот!")
 
 if __name__ == "__main__":
-    keep_alive()
     bot.run(TOKEN)
