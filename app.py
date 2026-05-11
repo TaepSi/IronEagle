@@ -302,6 +302,41 @@ async def slash_kick(interaction: discord.Interaction, member: discord.Member, r
 async def slash_ping(interaction: discord.Interaction):
     await interaction.response.send_message("🦅 КЛИК КЛИК БУМ!", ephemeral=True)
 
+
+@bot.tree.command(name="warn", description="Выдать варн пользователю")
+@commands.has_permissions(administrator=True)
+async def slash_warn(interaction: discord.Interaction, member: discord.Member, reason: str = "Нарушение правил"):
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO warns (user_id, moderator_id, reason) VALUES ($1, $2, $3)",
+            member.id, interaction.user.id, reason
+        )
+        count = await conn.fetchval("SELECT COUNT(*) FROM warns WHERE user_id = $1", member.id)
+
+    # Лог в канал варнов
+    warn_log = bot.get_channel(WARN_LOGS_ID)
+    if warn_log:
+        embed = discord.Embed(
+            title="⚠️ ВАРН",
+            color=discord.Color.orange(),
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
+        )
+        embed.add_field(name="Нарушитель", value=member.mention, inline=True)
+        embed.add_field(name="Модератор", value=interaction.user.mention, inline=True)
+        embed.add_field(name="Причина", value=reason, inline=False)
+        embed.add_field(name="Счетчик", value=f"{count}/6", inline=False)
+        await warn_log.send(embed=embed)
+
+    # Публичное оповещение
+    public_chat = bot.get_channel(GENERAL_CHAT_ID)
+    if public_chat:
+        await public_chat.send(f"⚠️ {member.mention} получил варн. Причина: {reason}. Всего: {count}/6")
+
+    await interaction.response.send_message(
+        f"✅ Варн выдан {member.mention}. Всего: {count}/6",
+        ephemeral=True
+    )
+
 # --- ЗАПУСК ---
 bot.db_pool = None
 
