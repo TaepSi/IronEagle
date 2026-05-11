@@ -271,6 +271,37 @@ async def setup_confession(ctx):
 async def ping(ctx):
     await ctx.send("🦅 КЛИК КЛИК БУМ!")
 
+# --- SLASH-КОМАНДЫ ---
+@bot.tree.command(name="ban", description="Забанить пользователя")
+@commands.has_permissions(administrator=True)
+async def slash_ban(interaction: discord.Interaction, member: discord.Member, reason: str = "Нарушение правил"):
+    try:
+        await member.ban(reason=reason)
+        await interaction.response.send_message(f"✅ {member.mention} забанен. Причина: {reason}", ephemeral=True)
+        
+        # Лог
+        ban_log = bot.get_channel(BAN_LOGS_ID)
+        if ban_log:
+            embed = discord.Embed(title="🔨 БАН", description=f"{member.mention} забанен.", color=discord.Color.dark_red(), timestamp=datetime.datetime.now(datetime.timezone.utc))
+            embed.add_field(name="Модератор", value=interaction.user.mention)
+            embed.add_field(name="Причина", value=reason)
+            await ban_log.send(embed=embed)
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Ошибка: {e}", ephemeral=True)
+
+@bot.tree.command(name="kick", description="Выгнать пользователя")
+@commands.has_permissions(administrator=True)
+async def slash_kick(interaction: discord.Interaction, member: discord.Member, reason: str = "Нарушение правил"):
+    try:
+        await member.kick(reason=reason)
+        await interaction.response.send_message(f"✅ {member.mention} выгнан. Причина: {reason}", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Ошибка: {e}", ephemeral=True)
+
+@bot.tree.command(name="ping", description="Проверить связь с орлом")
+async def slash_ping(interaction: discord.Interaction):
+    await interaction.response.send_message("🦅 КЛИК КЛИК БУМ!", ephemeral=True)
+
 # --- ЗАПУСК ---
 bot.db_pool = None
 
@@ -284,6 +315,7 @@ async def on_ready():
     await init_db()
     bot.add_view(VerifyView())
     bot.add_view(ConfessionView())
+    await bot.tree.sync()
     print(f"🦅 {bot.user} взлетел! Iron Eagle в небе DLHSEC.")
 
 if __name__ == "__main__":
