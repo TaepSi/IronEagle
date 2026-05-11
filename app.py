@@ -415,7 +415,10 @@ bot.db_pool = None
 
 async def init_db():
     DATABASE_URL = os.getenv("DATABASE_URL")
-    bot.db_pool = await asyncpg.create_pool(DATABASE_URL)
+    bot.db_pool = await asyncpg.create_pool(
+        DATABASE_URL,
+        statement_cache_size=0
+    )
     print("💎 Supabase подключен!")
 
 @bot.event
