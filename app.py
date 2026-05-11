@@ -36,6 +36,7 @@ CONFESSION_CHANNEL_ID = 1503439326909038853
 MUTE_LOGS_ID = 1503446367979311125
 WARN_LOGS_ID = 1503446730757374122
 BAN_LOGS_ID = 1503446786826702921
+PUBLIC_LOG_ID = 1503433900536369323 # Лучше создать отдельный канал #публичные-логи, а пока укажем сюда же
 
 CONFESSION_ROLES = {
     "Протестант": 1503440143942549725,
@@ -122,12 +123,6 @@ class ConfessionView(discord.ui.View):
 
 # --- СОБЫТИЯ ---
 @bot.event
-async def on_ready():
-    bot.add_view(VerifyView())
-    bot.add_view(ConfessionView())
-    print(f"🦅 {bot.user} взлетел! Iron Eagle в небе DLHSEC.")
-
-@bot.event
 async def on_member_join(member):
     log_channel = bot.get_channel(LOG_CHANNEL_ID)
     if log_channel:
@@ -190,7 +185,7 @@ async def on_message(message):
                 await mute_channel.send(embed=embed)
             user_messages[message.author.id].clear()
             return
-        except: pass
+        except Exception as e: print(f"Ошибка антиспама: {e}")
 
     # Анти масс-упоминания
     if len(message.mentions) >= MAX_MENTIONS and not is_admin:
@@ -205,7 +200,7 @@ async def on_message(message):
                 embed.add_field(name="Наказание", value=f"{MENTION_TIMEOUT} минут тайм-аут", inline=False)
                 await mute_channel.send(embed=embed)
             return
-        except: pass
+        except Exception as e: print(f"Ошибка анти-масс-пинга: {e}")
 
     # Умная модерация мата + варны
     if not is_admin and predict([message.content])[0] == 1:
@@ -232,7 +227,7 @@ async def on_message(message):
                 action_text = "ЗАБАНЕН за рецидив."
             except: action_text = "должен быть забанен."
 
-        public_chat = bot.get_channel(VERIFY_CHANNEL_ID)
+        public_chat = bot.get_channel(PUBLIC_LOG_ID)
         if public_chat: await public_chat.send(f"⚠️ {message.author.mention}, ты {action_text}")
 
         if count >= 6:
@@ -275,13 +270,19 @@ async def ping(ctx):
     await ctx.send("🦅 КЛИК КЛИК БУМ!")
 
 # --- ЗАПУСК ---
+bot.db_pool = None
+
+async def init_db():
+    DATABASE_URL = os.getenv("DATABASE_URL")
+    bot.db_pool = await asyncpg.create_pool(DATABASE_URL)
+    print("💎 Supabase подключен!")
+
+@bot.event
+async def on_ready():
+    await init_db()
+    bot.add_view(VerifyView())
+    bot.add_view(ConfessionView())
+    print(f"🦅 {bot.user} взлетел! Iron Eagle в небе DLHSEC.")
+
 if __name__ == "__main__":
-    bot.db_pool = None
-    async def init_db():
-        DATABASE_URL = os.getenv("DATABASE_URL")
-        bot.db_pool = await asyncpg.create_pool(DATABASE_URL)
-        print("💎 Supabase подключен!")
-    import asyncio
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(init_db())
     bot.run(TOKEN)
