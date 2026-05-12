@@ -8,6 +8,7 @@ from threading import Thread
 from collections import defaultdict
 import time
 from profanity_check import predict
+import asyncio
 
 # --- БЛОК ОЖИВЛЯЛКИ ---
 app = Flask('')
@@ -419,6 +420,7 @@ class CloseTicketView(discord.ui.View):
 
     @discord.ui.button(label="Закрыть тикет", style=discord.ButtonStyle.red, custom_id="close_ticket_btn")
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("❌ Только администратор может закрыть тикет.", ephemeral=True)
 
@@ -426,7 +428,7 @@ class CloseTicketView(discord.ui.View):
         async with bot.db_pool.acquire() as conn:
             await conn.execute("DELETE FROM tickets WHERE channel_id = $1", interaction.channel_id)
 
-        await interaction.response.send_message("✅ Тикет закрыт. Канал будет удалён через 5 секунд.")
+        await interaction.followup.send("✅ Тикет закрыт. Канал будет удалён через 5 секунд.")
         await asyncio.sleep(5)
         await interaction.channel.delete()
 
@@ -436,6 +438,7 @@ class TicketView(discord.ui.View):
 
     @discord.ui.button(label="📩 Создать тикет", style=discord.ButtonStyle.blurple, custom_id="create_ticket_btn")
     async def create_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
         user = interaction.user
 
@@ -483,7 +486,7 @@ class TicketView(discord.ui.View):
                 channel.id, user.id
             )
 
-        await interaction.response.send_message(f"✅ Тикет создан: {channel.mention}", ephemeral=True)
+        await interaction.followup.send(f"✅ Тикет создан: {channel.mention}", ephemeral=True)
 
         # Отправляем сообщение в тикет
         view = CloseTicketView()
