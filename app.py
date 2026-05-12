@@ -515,12 +515,13 @@ async def init_db():
         statement_cache_size=0
     )
     print("💎 Supabase подключен!")
-
 @bot.event
 async def on_ready():
     await init_db()
     bot.add_view(VerifyView())
     bot.add_view(ConfessionView())
+    bot.add_view(TicketView())
+    bot.add_view(CloseTicketView())
     await bot.tree.sync()
     print(f"🦅 {bot.user} взлетел! Iron Eagle в небе DLHSEC.")
 
