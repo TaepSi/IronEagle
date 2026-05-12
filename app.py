@@ -128,7 +128,6 @@ class ConfessionView(discord.ui.View):
 # --- СОБЫТИЯ ---
 @bot.event
 async def on_member_join(member):
-    # 1. Лог в канал логов
     log_channel = bot.get_channel(LOG_CHANNEL_ID)
     if log_channel:
         embed = discord.Embed(title="📥 ВХОД В ИМПЕРИЮ", description=f"{member.mention} пересёк границу DLHSEC.", color=discord.Color.blue(), timestamp=datetime.datetime.now(datetime.timezone.utc))
@@ -136,7 +135,6 @@ async def on_member_join(member):
         embed.set_thumbnail(url=member.display_avatar.url)
         await log_channel.send(embed=embed)
 
-    # 2. Приветствие в общий чат
     general_chat = bot.get_channel(GENERAL_CHAT_ID)
     if general_chat:
         await general_chat.send(
@@ -186,6 +184,17 @@ async def on_message(message):
     content = message.content.lower()
     now = time.time()
 
+    # АВТОРЕГИСТРАЦИЯ И СЧЁТЧИК СООБЩЕНИЙ ЗА ДЕНЬ
+    if bot.db_pool:
+        async with bot.db_pool.acquire() as conn:
+            await conn.execute('INSERT INTO users (user_id) VALUES ($1) ON CONFLICT DO NOTHING', message.author.id)
+            await conn.execute('''
+                INSERT INTO daily_message_counts (user_id, message_date, msg_count)
+                VALUES ($1, CURRENT_DATE, 1)
+                ON CONFLICT (user_id, message_date)
+                DO UPDATE SET msg_count = daily_message_counts.msg_count + 1
+            ''', message.author.id)
+
     # Антиспам
     user_messages[message.author.id].append(now)
     user_messages[message.author.id] = [t for t in user_messages[message.author.id] if now - t <= SPAM_TIME]
@@ -218,7 +227,7 @@ async def on_message(message):
             return
         except Exception as e: print(f"Ошибка анти-масс-пинга: {e}")
 
-        # Умная модерация мата + варны
+    # Умная модерация мата + варны
     if not is_admin and predict([message.content])[0] == 1:
         try: await message.delete()
         except: pass
@@ -243,7 +252,6 @@ async def on_message(message):
                 action_text = "ЗАБАНЕН за рецидив."
             except: action_text = "должен быть забанен."
 
-        # Публичное оповещение в общий чат
         public_chat = bot.get_channel(GENERAL_CHAT_ID)
         if public_chat: await public_chat.send(f"⚠️ {message.author.mention}, ты {action_text}")
 
@@ -293,8 +301,6 @@ async def slash_ban(interaction: discord.Interaction, member: discord.Member, re
     try:
         await member.ban(reason=reason)
         await interaction.response.send_message(f"✅ {member.mention} забанен. Причина: {reason}", ephemeral=True)
-        
-        # Лог
         ban_log = bot.get_channel(BAN_LOGS_ID)
         if ban_log:
             embed = discord.Embed(title="🔨 БАН", description=f"{member.mention} забанен.", color=discord.Color.dark_red(), timestamp=datetime.datetime.now(datetime.timezone.utc))
@@ -317,85 +323,51 @@ async def slash_kick(interaction: discord.Interaction, member: discord.Member, r
 async def slash_ping(interaction: discord.Interaction):
     await interaction.response.send_message("🦅 КЛИК КЛИК БУМ!", ephemeral=True)
 
-
 @bot.tree.command(name="warn", description="Выдать варн пользователю")
 @commands.has_permissions(administrator=True)
 async def slash_warn(interaction: discord.Interaction, member: discord.Member, reason: str = "Нарушение правил"):
     async with bot.db_pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO warns (user_id, moderator_id, reason) VALUES ($1, $2, $3)",
-            member.id, interaction.user.id, reason
-        )
+        await conn.execute("INSERT INTO warns (user_id, moderator_id, reason) VALUES ($1, $2, $3)", member.id, interaction.user.id, reason)
         count = await conn.fetchval("SELECT COUNT(*) FROM warns WHERE user_id = $1", member.id)
 
-    # Лог в канал варнов
     warn_log = bot.get_channel(WARN_LOGS_ID)
     if warn_log:
-        embed = discord.Embed(
-            title="⚠️ ВАРН",
-            color=discord.Color.orange(),
-            timestamp=datetime.datetime.now(datetime.timezone.utc)
-        )
+        embed = discord.Embed(title="⚠️ ВАРН", color=discord.Color.orange(), timestamp=datetime.datetime.now(datetime.timezone.utc))
         embed.add_field(name="Нарушитель", value=member.mention, inline=True)
         embed.add_field(name="Модератор", value=interaction.user.mention, inline=True)
         embed.add_field(name="Причина", value=reason, inline=False)
         embed.add_field(name="Счетчик", value=f"{count}/6", inline=False)
         await warn_log.send(embed=embed)
 
-    # Публичное оповещение
     public_chat = bot.get_channel(GENERAL_CHAT_ID)
     if public_chat:
         await public_chat.send(f"⚠️ {member.mention} получил варн. Причина: {reason}. Всего: {count}/6")
 
-    await interaction.response.send_message(
-        f"✅ Варн выдан {member.mention}. Всего: {count}/6",
-        ephemeral=True
-    )
+    await interaction.response.send_message(f"✅ Варн выдан {member.mention}. Всего: {count}/6", ephemeral=True)
 
 @bot.tree.command(name="unwarn", description="Снять последний варн с пользователя")
 @commands.has_permissions(administrator=True)
 async def slash_unwarn(interaction: discord.Interaction, member: discord.Member):
     async with bot.db_pool.acquire() as conn:
-        # Находим ID последнего варна
-        last_warn_id = await conn.fetchval(
-            "SELECT warn_id FROM warns WHERE user_id = $1 ORDER BY timestamp DESC LIMIT 1",
-            member.id
-        )
-        
+        last_warn_id = await conn.fetchval("SELECT warn_id FROM warns WHERE user_id = $1 ORDER BY timestamp DESC LIMIT 1", member.id)
         if last_warn_id is None:
-            return await interaction.response.send_message(
-                f"❌ У {member.mention} нет варнов.",
-                ephemeral=True
-            )
-        
-        # Удаляем последний варн
+            return await interaction.response.send_message(f"❌ У {member.mention} нет варнов.", ephemeral=True)
         await conn.execute("DELETE FROM warns WHERE warn_id = $1", last_warn_id)
-        
-        # Считаем оставшиеся
         remaining = await conn.fetchval("SELECT COUNT(*) FROM warns WHERE user_id = $1", member.id)
 
-    # Лог
     warn_log = bot.get_channel(WARN_LOGS_ID)
     if warn_log:
-        embed = discord.Embed(
-            title="➖ ВАРН СНЯТ",
-            color=discord.Color.blue(),
-            timestamp=datetime.datetime.now(datetime.timezone.utc)
-        )
+        embed = discord.Embed(title="➖ ВАРН СНЯТ", color=discord.Color.blue(), timestamp=datetime.datetime.now(datetime.timezone.utc))
         embed.add_field(name="С кого", value=member.mention, inline=True)
         embed.add_field(name="Модератор", value=interaction.user.mention, inline=True)
         embed.add_field(name="Осталось варнов", value=str(remaining), inline=False)
         await warn_log.send(embed=embed)
 
-    # Публичное оповещение
     public_chat = bot.get_channel(GENERAL_CHAT_ID)
     if public_chat:
         await public_chat.send(f"😇 С {member.mention} снят варн. Осталось: {remaining}/6")
 
-    await interaction.response.send_message(
-        f"✅ Последний варн снят с {member.mention}. Осталось: {remaining}/6",
-        ephemeral=True
-    )
+    await interaction.response.send_message(f"✅ Последний варн снят с {member.mention}. Осталось: {remaining}/6", ephemeral=True)
 
 @bot.tree.command(name="clearwarns", description="Полностью очистить историю варнов пользователя")
 @commands.has_permissions(administrator=True)
@@ -403,27 +375,18 @@ async def slash_clearwarns(interaction: discord.Interaction, member: discord.Mem
     async with bot.db_pool.acquire() as conn:
         await conn.execute("DELETE FROM warns WHERE user_id = $1", member.id)
 
-    # Лог
     warn_log = bot.get_channel(WARN_LOGS_ID)
     if warn_log:
-        embed = discord.Embed(
-            title="♻️ ИСТОРИЯ ОЧИЩЕНА",
-            color=discord.Color.green(),
-            timestamp=datetime.datetime.now(datetime.timezone.utc)
-        )
+        embed = discord.Embed(title="♻️ ИСТОРИЯ ОЧИЩЕНА", color=discord.Color.green(), timestamp=datetime.datetime.now(datetime.timezone.utc))
         embed.add_field(name="Пользователь", value=member.mention, inline=True)
         embed.add_field(name="Модератор", value=interaction.user.mention, inline=True)
         await warn_log.send(embed=embed)
 
-    # Публичное оповещение
     public_chat = bot.get_channel(GENERAL_CHAT_ID)
     if public_chat:
         await public_chat.send(f"✨ Все варны {member.mention} аннулированы. Чистый лист! Благодари Бога за снисхождение императора.")
 
-    await interaction.response.send_message(
-        f"✅ Все варны {member.mention} удалены.",
-        ephemeral=True
-    )
+    await interaction.response.send_message(f"✅ Все варны {member.mention} удалены.", ephemeral=True)
 
 # --- ТИКЕТЫ ---
 class CloseTicketView(discord.ui.View):
@@ -435,11 +398,8 @@ class CloseTicketView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("❌ Только администратор может закрыть тикет.", ephemeral=True)
-
-        # Удаляем запись из базы
         async with bot.db_pool.acquire() as conn:
             await conn.execute("DELETE FROM tickets WHERE channel_id = $1", interaction.channel_id)
-
         await interaction.followup.send("✅ Тикет закрыт. Канал будет удалён через 5 секунд.")
         await asyncio.sleep(5)
         await interaction.channel.delete()
@@ -453,82 +413,151 @@ class TicketView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
         user = interaction.user
-
-        # Проверяем, нет ли уже открытого тикета
         async with bot.db_pool.acquire() as conn:
-            existing = await conn.fetchrow(
-                "SELECT channel_id FROM tickets WHERE user_id = $1 AND status = 'open'",
-                user.id
-            )
-
+            existing = await conn.fetchrow("SELECT channel_id FROM tickets WHERE user_id = $1 AND status = 'open'", user.id)
         if existing:
             old_channel = guild.get_channel(existing['channel_id'])
             if old_channel:
-                return await interaction.response.send_message(
-                    f"❌ У тебя уже есть открытый тикет: {old_channel.mention}",
-                    ephemeral=True
-                )
+                return await interaction.response.send_message(f"❌ У тебя уже есть открытый тикет: {old_channel.mention}", ephemeral=True)
             else:
-                # Канал удалён вручную — чистим базу
                 async with bot.db_pool.acquire() as conn:
                     await conn.execute("DELETE FROM tickets WHERE channel_id = $1", existing['channel_id'])
-
-        # Получаем категорию
         category = guild.get_channel(TICKET_CATEGORY_ID)
         if category is None:
             return await interaction.response.send_message("❌ Категория тикетов не найдена.", ephemeral=True)
-
-        # Создаём канал внутри категории
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
             user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
             guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
         }
-
-        channel = await guild.create_text_channel(
-            name=f"тикет-{user.name}",
-            category=category,
-            overwrites=overwrites
-        )
-
-        # Записываем в базу
+        channel = await guild.create_text_channel(name=f"тикет-{user.name}", category=category, overwrites=overwrites)
         async with bot.db_pool.acquire() as conn:
-            await conn.execute(
-                "INSERT INTO tickets (channel_id, user_id, status) VALUES ($1, $2, 'open')",
-                channel.id, user.id
-            )
-
+            await conn.execute("INSERT INTO tickets (channel_id, user_id, status) VALUES ($1, $2, 'open')", channel.id, user.id)
         await interaction.followup.send(f"✅ Тикет создан: {channel.mention}", ephemeral=True)
-
-        # Отправляем сообщение в тикет
         view = CloseTicketView()
-        await channel.send(
-            f"📩 {user.mention}, добро пожаловать в твой тикет!\n"
-            f"Опиши свою проблему или вопрос.\n"
-            f"Администратор ответит тебе здесь.\n\n"
-            f"Когда вопрос будет решён, администратор нажмёт кнопку ниже для закрытия тикета.",
-            view=view
-        )
+        await channel.send(f"📩 {user.mention}, добро пожаловать в твой тикет!\nОпиши свою проблему или вопрос.\nАдминистратор ответит тебе здесь.\n\nКогда вопрос будет решён, администратор нажмёт кнопку ниже для закрытия тикета.", view=view)
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def setup_tickets(ctx):
-    embed = discord.Embed(
-        title="📩 Поддержка DLHSEC",
-        description="Нажми кнопку ниже, чтобы создать приватный тикет. Администрация ответит тебе лично.",
-        color=discord.Color.blurple()
-    )
+    embed = discord.Embed(title="📩 Поддержка DLHSEC", description="Нажми кнопку ниже, чтобы создать приватный тикет. Администрация ответит тебе лично.", color=discord.Color.blurple())
     await ctx.send(embed=embed, view=TicketView())
+
+# =========================================
+# КОМАНДА !ктоя (своя стата или чья-то)
+# =========================================
+@bot.command(name="ктоя")
+async def who_am_i(ctx, member: discord.Member = None):
+    if member is None:
+        member = ctx.author
+    user = member
+    async with bot.db_pool.acquire() as conn:
+        user_data = await conn.fetchrow('SELECT status, registered_at FROM users WHERE user_id = $1', user.id)
+        if not user_data:
+            await conn.execute('INSERT INTO users (user_id) VALUES ($1) ON CONFLICT DO NOTHING', user.id)
+            user_data = await conn.fetchrow('SELECT status, registered_at FROM users WHERE user_id = $1', user.id)
+        desc_data = await conn.fetchrow('SELECT description FROM user_descriptions WHERE user_id = $1', user.id)
+        awards = await conn.fetch('SELECT award_name FROM user_awards WHERE user_id = $1', user.id)
+        total_msgs = await conn.fetchval('SELECT msg_count FROM stats WHERE user_id = $1', user.id)
+        total_msgs = total_msgs or 0
+        today_msgs = await conn.fetchval('SELECT msg_count FROM daily_message_counts WHERE user_id = $1 AND message_date = CURRENT_DATE', user.id)
+        today_msgs = today_msgs or 0
+        warn_count = await conn.fetchval('SELECT COUNT(*) FROM warns WHERE user_id = $1', user.id)
+        warn_count = warn_count or 0
+
+    days_on_server = (datetime.datetime.now(datetime.timezone.utc) - user.joined_at).days if user.joined_at else "?"
+    roles = ", ".join([role.mention for role in user.roles if role.name != "@everyone"]) or "Нет ролей"
+    embed = discord.Embed(title=f"📋 Профиль: {user.display_name}", color=discord.Color.blue(), timestamp=datetime.datetime.now(datetime.timezone.utc))
+    embed.set_thumbnail(url=user.display_avatar.url if user.display_avatar else user.default_avatar.url)
+    embed.add_field(name="🏷 Ник", value=user.name, inline=True)
+    embed.add_field(name="📅 На сервере", value=f"{days_on_server} дн.", inline=True)
+    embed.add_field(name="🛡 Роли", value=roles, inline=False)
+    status_text = user_data['status'] or "Не установлен"
+    embed.add_field(name="📝 Статус", value=status_text, inline=False)
+    desc_text = desc_data['description'] if desc_data and desc_data['description'] else "Описание отсутствует"
+    embed.add_field(name="📖 Описание", value=desc_text, inline=False)
+    awards_text = ", ".join([a['award_name'] for a in awards]) if awards else "Нет наград"
+    embed.add_field(name="🏆 Награды", value=awards_text, inline=False)
+    embed.add_field(name="💬 Сообщений всего", value=str(total_msgs), inline=True)
+    embed.add_field(name="📆 Сообщений сегодня", value=str(today_msgs), inline=True)
+    embed.add_field(name="⚠️ Варнов", value=str(warn_count), inline=True)
+    await ctx.send(embed=embed)
+
+# =========================================
+# КОМАНДА !статус
+# =========================================
+@bot.command(name="статус")
+async def set_status(ctx, *, text=None):
+    if text is None:
+        await ctx.send("❌ Используй: `!статус твой текст`")
+        return
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute('INSERT INTO users (user_id, status) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET status = $2, last_updated = NOW()', ctx.author.id, text)
+    await ctx.send(f"✅ Статус обновлён!")
+
+# =========================================
+# КОМАНДА !описание
+# =========================================
+@bot.command(name="описание")
+async def set_description(ctx, *, text=None):
+    if text is None:
+        await ctx.send("❌ Используй: `!описание твой текст` (или `!описание стереть`)")
+        return
+    user_id = ctx.author.id
+    if text.strip().lower() in ["стереть", "удалить", "очистить"]:
+        async with bot.db_pool.acquire() as conn:
+            await conn.execute('DELETE FROM user_descriptions WHERE user_id = $1', user_id)
+        await ctx.send("🗑 Описание удалено.")
+        return
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute('INSERT INTO user_descriptions (user_id, description) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET description = $2, updated_at = NOW()', user_id, text)
+    await ctx.send("✅ Описание сохранено!")
+
+# =========================================
+# КОМАНДА !награда (только для админов)
+# =========================================
+@bot.command(name="награда")
+@commands.has_permissions(administrator=True)
+async def give_award(ctx, member: discord.Member, *, award_name: str):
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute('INSERT INTO user_awards (user_id, award_name, awarded_by) VALUES ($1, $2, $3)', member.id, award_name, ctx.author.id)
+    await ctx.send(f"🏆 Награда **{award_name}** выдана пользователю {member.mention}!")
+
+# =========================================
+# КОМАНДА !top
+# =========================================
+@bot.command(name="top")
+async def top(ctx):
+    async with bot.db_pool.acquire() as conn:
+        rows = await conn.fetch('SELECT user_id, msg_count FROM stats ORDER BY msg_count DESC LIMIT 10')
+    if not rows:
+        return await ctx.send("Статистика пока пуста. Будь первым!")
+    embed = discord.Embed(title="🏆 Топ активных граждан DLHSEC", color=discord.Color.gold(), timestamp=datetime.datetime.now(datetime.timezone.utc))
+    description = ""
+    for i, row in enumerate(rows, 1):
+        member = ctx.guild.get_member(row['user_id'])
+        name = member.display_name if member else f"Юзер {row['user_id']}"
+        description += f"**{i}.** {name} — `{row['msg_count']}` сообщ.\n"
+    embed.description = description
+    await ctx.send(embed=embed)
+
+# =========================================
+# КОМАНДА !обнулить (админ)
+# =========================================
+@bot.command(name="обнулить")
+@commands.has_permissions(administrator=True)
+async def reset_stats(ctx):
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute('DELETE FROM daily_message_counts')
+        await conn.execute('DELETE FROM stats')
+    await ctx.send("✅ Статистика полностью обнулена.")
 
 # --- ЗАПУСК ---
 bot.db_pool = None
 
 async def init_db():
     DATABASE_URL = os.getenv("DATABASE_URL")
-    bot.db_pool = await asyncpg.create_pool(
-        DATABASE_URL,
-        statement_cache_size=0
-    )
+    bot.db_pool = await asyncpg.create_pool(DATABASE_URL, statement_cache_size=0)
     print("💎 Supabase подключен!")
 
 @bot.event
