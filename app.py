@@ -515,6 +515,7 @@ async def init_db():
         statement_cache_size=0
     )
     print("💎 Supabase подключен!")
+
 @bot.event
 async def on_ready():
     await init_db()
