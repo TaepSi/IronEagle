@@ -128,12 +128,24 @@ class ConfessionView(discord.ui.View):
 # --- СОБЫТИЯ ---
 @bot.event
 async def on_member_join(member):
+    # 1. Лог в канал логов
     log_channel = bot.get_channel(LOG_CHANNEL_ID)
     if log_channel:
         embed = discord.Embed(title="📥 ВХОД В ИМПЕРИЮ", description=f"{member.mention} пересёк границу DLHSEC.", color=discord.Color.blue(), timestamp=datetime.datetime.now(datetime.timezone.utc))
         embed.add_field(name="Аккаунт создан", value=member.created_at.strftime("%d.%m.%Y"), inline=True)
         embed.set_thumbnail(url=member.display_avatar.url)
         await log_channel.send(embed=embed)
+
+    # 2. Приветствие в общий чат
+    general_chat = bot.get_channel(GENERAL_CHAT_ID)
+    if general_chat:
+        await general_chat.send(
+            f"🦅 **Приветствуем нового гражданина, {member.mention}!**\n\n"
+            f"Добро пожаловать в **DLHSEC** — Демократическую Либеральную Священную Социальную Империю Христиан.\n\n"
+            f"📜 Ознакомься с правилами в <#1503433303047340172>\n"
+            f"✝️ Выбери свою конфессию в <#1503439326909038853>\n\n"
+            f"Да хранит тебя Господь! Да хранит Господь твоих сограждан! Да хранит Господь империю!"
+        )
 
 @bot.event
 async def on_member_remove(member):
