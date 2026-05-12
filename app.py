@@ -38,6 +38,8 @@ WARN_LOGS_ID = 1503446730757374122
 BAN_LOGS_ID = 1503446786826702921
 PUBLIC_LOG_ID = 1503433900536369323
 GENERAL_CHAT_ID = 1503432785363206155
+TICKET_CATEGORY_ID = 1503677546900754553
+TICKET_CHANNEL_ID = 1503678206572625920
 
 CONFESSION_ROLES = {
     "Протестант": 1503440143942549725,
@@ -409,6 +411,99 @@ async def slash_clearwarns(interaction: discord.Interaction, member: discord.Mem
         f"✅ Все варны {member.mention} удалены.",
         ephemeral=True
     )
+
+# --- ТИКЕТЫ ---
+class CloseTicketView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Закрыть тикет", style=discord.ButtonStyle.red, custom_id="close_ticket_btn")
+    async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("❌ Только администратор может закрыть тикет.", ephemeral=True)
+
+        # Удаляем запись из базы
+        async with bot.db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM tickets WHERE channel_id = $1", interaction.channel_id)
+
+        await interaction.response.send_message("✅ Тикет закрыт. Канал будет удалён через 5 секунд.")
+        await asyncio.sleep(5)
+        await interaction.channel.delete()
+
+class TicketView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="📩 Создать тикет", style=discord.ButtonStyle.blurple, custom_id="create_ticket_btn")
+    async def create_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild = interaction.guild
+        user = interaction.user
+
+        # Проверяем, нет ли уже открытого тикета
+        async with bot.db_pool.acquire() as conn:
+            existing = await conn.fetchrow(
+                "SELECT channel_id FROM tickets WHERE user_id = $1 AND status = 'open'",
+                user.id
+            )
+
+        if existing:
+            old_channel = guild.get_channel(existing['channel_id'])
+            if old_channel:
+                return await interaction.response.send_message(
+                    f"❌ У тебя уже есть открытый тикет: {old_channel.mention}",
+                    ephemeral=True
+                )
+            else:
+                # Канал удалён вручную — чистим базу
+                async with bot.db_pool.acquire() as conn:
+                    await conn.execute("DELETE FROM tickets WHERE channel_id = $1", existing['channel_id'])
+
+        # Получаем категорию
+        category = guild.get_channel(TICKET_CATEGORY_ID)
+        if category is None:
+            return await interaction.response.send_message("❌ Категория тикетов не найдена.", ephemeral=True)
+
+        # Создаём канал внутри категории
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False),
+            user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
+            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+        }
+
+        channel = await guild.create_text_channel(
+            name=f"тикет-{user.name}",
+            category=category,
+            overwrites=overwrites
+        )
+
+        # Записываем в базу
+        async with bot.db_pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO tickets (channel_id, user_id, status) VALUES ($1, $2, 'open')",
+                channel.id, user.id
+            )
+
+        await interaction.response.send_message(f"✅ Тикет создан: {channel.mention}", ephemeral=True)
+
+        # Отправляем сообщение в тикет
+        view = CloseTicketView()
+        await channel.send(
+            f"📩 {user.mention}, добро пожаловать в твой тикет!\n"
+            f"Опиши свою проблему или вопрос.\n"
+            f"Администратор ответит тебе здесь.\n\n"
+            f"Когда вопрос будет решён, администратор нажмёт кнопку ниже для закрытия тикета.",
+            view=view
+        )
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setup_tickets(ctx):
+    embed = discord.Embed(
+        title="📩 Поддержка DLHSEC",
+        description="Нажми кнопку ниже, чтобы создать приватный тикет. Администрация ответит тебе лично.",
+        color=discord.Color.blurple()
+    )
+    await ctx.send(embed=embed, view=TicketView())
 
 # --- ЗАПУСК ---
 bot.db_pool = None
